@@ -33,7 +33,10 @@
   button.b:hover{background:#3d3d3d}
   button.run{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
   button.run:disabled{opacity:.5;cursor:default}
+  #sidebar.hidden{display:none}
   #main{flex:1;display:flex;flex-direction:column;min-width:0}
+  #toggle{background:none;border:0;color:var(--muted);cursor:pointer;font-size:16px;padding:0 4px;flex:none}
+  #toggle:hover{color:var(--fg)}
   #top{border-bottom:1px solid var(--border);background:var(--panel);padding:6px 10px;
     display:flex;gap:8px;align-items:center}
   #name{background:none;border:0;color:#fff;font:inherit;font-weight:600;flex:1;min-width:0;padding:2px}
@@ -64,6 +67,7 @@
   </div>
   <div id="main">
     <div id="top">
+      <button id="toggle" title="Show/hide projects">☰</button>
       <input id="name" spellcheck="false">
       <span id="status">loading Python…</span>
       <button class="b run" id="run" disabled>▶ Run</button>
@@ -125,6 +129,14 @@ function remove(i){
   if (db.current >= db.projects.length) db.current = db.projects.length - 1;
   save(); renderList(); renderEditor();
 }
+
+const SIDEBAR_KEY = 'pyplayground.sidebarHidden';
+function setSidebar(hidden){
+  $('sidebar').classList.toggle('hidden', hidden);
+  try { localStorage.setItem(SIDEBAR_KEY, hidden ? '1' : ''); } catch (e) {}
+}
+$('toggle').onclick = () => setSidebar(!$('sidebar').classList.contains('hidden'));
+try { setSidebar(localStorage.getItem(SIDEBAR_KEY) === '1'); } catch (e) {}
 
 $('new').onclick = () => {
   db.projects.push({ id: uid(), name: 'untitled', code: '' });
