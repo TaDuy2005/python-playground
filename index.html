@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Python Playground</title>
+<style>
+  :root{
+    --bg:#1e1e1e; --panel:#252526; --border:#3c3c3c; --fg:#d4d4d4;
+    --muted:#858585; --accent:#0e9f6e; --err:#f87171;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  #app{display:flex;height:100%}
+  #sidebar{width:190px;flex:none;background:var(--panel);border-right:1px solid var(--border);
+    display:flex;flex-direction:column}
+  #sidebar h2{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+    margin:0;padding:10px 12px}
+  #projects{flex:1;overflow:auto}
+  .proj{padding:6px 12px;cursor:pointer;display:flex;gap:6px;align-items:center;
+    white-space:nowrap;overflow:hidden}
+  .proj:hover{background:#2d2d30}
+  .proj.active{background:#37373d;color:#fff}
+  .proj span{flex:1;overflow:hidden;text-overflow:ellipsis}
+  .proj button{background:none;border:0;color:var(--muted);cursor:pointer;padding:0 2px;
+    visibility:hidden;font-size:13px}
+  .proj:hover button{visibility:visible}
+  .proj button:hover{color:var(--err)}
+  #sidebar .bar{border-top:1px solid var(--border);padding:8px;display:flex;gap:6px;flex-wrap:wrap}
+  button.b{background:#333;color:var(--fg);border:1px solid var(--border);border-radius:4px;
+    padding:4px 8px;cursor:pointer;font:inherit;font-size:12px}
+  button.b:hover{background:#3d3d3d}
+  button.run{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  button.run:disabled{opacity:.5;cursor:default}
+  #main{flex:1;display:flex;flex-direction:column;min-width:0}
+  #top{border-bottom:1px solid var(--border);background:var(--panel);padding:6px 10px;
+    display:flex;gap:8px;align-items:center}
+  #name{background:none;border:0;color:#fff;font:inherit;font-weight:600;flex:1;min-width:0;padding:2px}
+  #name:focus{outline:1px solid var(--border)}
+  #status{color:var(--muted);font-size:12px}
+  #panes{flex:1;display:flex;min-height:0}
+  #editor{flex:1;min-width:0;background:var(--bg);color:var(--fg);border:0;resize:none;
+    padding:10px;font:inherit;tab-size:4;outline:none}
+  #split{width:5px;background:var(--border);cursor:col-resize;flex:none}
+  #out{flex:1;min-width:0;margin:0;padding:10px;overflow:auto;white-space:pre-wrap;
+    word-break:break-word;background:#1b1b1b;border-left:1px solid var(--border)}
+  .stderr{color:var(--err)}
+  .meta{color:var(--muted)}
+  @media (max-width:640px){#sidebar{width:130px}#panes{flex-direction:column}#split{display:none}
+    #out{border-left:0;border-top:1px solid var(--border)}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <h2>Projects</h2>
+    <div id="projects"></div>
+    <div class="bar">
+      <button class="b" id="new">+ New</button>
+      <button class="b" id="export">Export</button>
+      <button class="b" id="import">Import</button>
+    </div>
+  </div>
+  <div id="main">
+    <div id="top">
+      <input id="name" spellcheck="false">
+      <span id="status">loading Python…</span>
+      <button class="b run" id="run" disabled>▶ Run</button>
+    </div>
+    <div id="panes">
+      <textarea id="editor" spellcheck="false" autocomplete="off"></textarea>
+      <div id="split"></div>
+      <pre id="out"><span class="meta">Output appears here.</span></pre>
+    </div>
+  </div>
+</div>
+<input type="file" id="file" accept="application/json" hidden>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.js"></script>
+<script>
+const KEY = 'pyplayground.v1';
+const $ = id => document.getElementById(id);
+
+// ---- storage -------------------------------------------------------------
+// ponytail: localStorage only, per-browser. Add a backend when people need to share projects.
+const load = () => {
+  try { const d = JSON.parse(localStorage.getItem(KEY)); if (d && d.projects.length) return d; }
+  catch (e) {}
+  return { projects: [{ id: uid(), name: 'hello', code: 'print("Hello World")\n' }], current: 0 };
+};
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} };
+function uid(){ return Math.random().toString(36).slice(2, 10); }
+
+let db = load();
+if (db.current >= db.projects.length) db.current = 0;
+const cur = () => db.projects[db.current];
+
+// ---- rendering -----------------------------------------------------------
+function renderList(){
+  $('projects').innerHTML = '';
+  db.projects.forEach((p, i) => {
+    const el = document.createElement('div');
+    el.className = 'proj' + (i === db.current ? ' active' : '');
+    const label = document.createElement('span');
+    label.textContent = p.name || 'untitled';
+    const del = document.createElement('button');
+    del.textContent = '×';
+    del.title = 'Delete project';
+    del.onclick = e => { e.stopPropagation(); remove(i); };
+    el.append(label, del);
+    el.onclick = () => select(i);
+    $('projects').append(el);
+  });
+}
+function renderEditor(){
+  $('name').value = cur().name;
+  $('editor').value = cur().code;
+}
+function select(i){ db.current = i; save(); renderList(); renderEditor(); }
+function remove(i){
+  if (!confirm('Delete "' + db.projects[i].name + '"?')) return;
+  db.projects.splice(i, 1);
+  if (!db.projects.length) db.projects.push({ id: uid(), name: 'untitled', code: '' });
+  if (db.current >= db.projects.length) db.current = db.projects.length - 1;
+  save(); renderList(); renderEditor();
+}
+
+$('new').onclick = () => {
+  db.projects.push({ id: uid(), name: 'untitled', code: '' });
+  select(db.projects.length - 1);
+  $('name').select();
+};
+$('name').oninput = () => { cur().name = $('name').value; save(); renderList(); };
+$('editor').oninput = () => { cur().code = $('editor').value; save(); };
+$('editor').onkeydown = e => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const t = e.target, s = t.selectionStart;
+    t.setRangeText('    ', s, t.selectionEnd, 'end');
+    cur().code = t.value; save();
+  }
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); }
+};
+
+// ---- export / import -----------------------------------------------------
+$('export').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' }));
+  a.download = 'python-projects.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+$('import').onclick = () => $('file').click();
+$('file').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const d = JSON.parse(await f.text());
+    if (!Array.isArray(d.projects)) throw new Error('not a projects file');
+    db.projects.push(...d.projects.filter(p => typeof p.code === 'string'));
+    save(); renderList();
+  } catch (err) { alert('Import failed: ' + err.message); }
+  e.target.value = '';
+};
+
+// ---- split drag ----------------------------------------------------------
+$('split').onmousedown = e => {
+  e.preventDefault();
+  const panes = $('panes'), x0 = e.clientX, w0 = $('editor').getBoundingClientRect().width;
+  const move = ev => {
+    const total = panes.getBoundingClientRect().width - 5;
+    const w = Math.min(Math.max(w0 + ev.clientX - x0, 120), total - 120);
+    $('editor').style.flex = '0 0 ' + w + 'px';
+  };
+  const up = () => { removeEventListener('mousemove', move); removeEventListener('mouseup', up); };
+  addEventListener('mousemove', move); addEventListener('mouseup', up);
+};
+
+// ---- python --------------------------------------------------------------
+let pyodide;
+function write(text, cls){
+  const s = document.createElement('span');
+  if (cls) s.className = cls;
+  s.textContent = text;
+  $('out').append(s);
+  $('out').scrollTop = $('out').scrollHeight;
+}
+async function boot(){
+  pyodide = await loadPyodide({
+    stdout: t => write(t + '\n'),
+    stderr: t => write(t + '\n', 'stderr'),
+    stdin: () => prompt('input():') ?? '',
+  });
+  $('status').textContent = 'ready';
+  $('run').disabled = false;
+}
+async function run(){
+  if (!pyodide) return;
+  $('out').textContent = '';
+  $('run').disabled = true;
+  $('status').textContent = 'running…';
+  const t0 = performance.now();
+  try {
+    // ponytail: runs on the main thread, so an infinite loop freezes the page
+    // (reload to recover). Move to a Web Worker if that bites.
+    await pyodide.runPythonAsync(cur().code);
+  } catch (err) {
+    // hide Pyodide's own frames: keep the traceback header + everything from the user's code on
+    const msg = String(err.message || err);
+    const i = msg.indexOf('  File "<exec>"');
+    write(i < 0 ? msg : msg.slice(0, msg.indexOf('\n') + 1) + msg.slice(i), 'stderr');
+  }
+  const ms = Math.round(performance.now() - t0);
+  if (!$('out').textContent) write('(no output)', 'meta');
+  write('\n[finished in ' + ms + ' ms]', 'meta');
+  $('status').textContent = 'ready';
+  $('run').disabled = false;
+}
+$('run').onclick = run;
+
+renderList(); renderEditor(); boot();
+</script>
+</body>
+</html>
